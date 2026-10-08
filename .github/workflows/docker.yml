@@ -1,0 +1,87 @@
+name: Docker
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  image:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Validate docker-compose.yml
+      run: docker compose config
+
+    - name: Build the image
+      run: |
+        docker build \
+          --build-arg VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo ci)" \
+          -t solistromgateway:ci .
+
+    - name: Report the image size
+      run: docker image ls solistromgateway:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+
+    - name: The image must not run as root
+      run: |
+        user="$(docker image inspect --format '{{.Config.User}}' solistromgateway:ci)"
+        echo "image user: ${user:-<empty, which means root>}"
+        test "$user" = "65534:65534"
+
+    - name: The image must contain no shell
+      run: |
+        # A scratch image has nothing to exec. If this succeeds, something
+        # pulled a shell into the final stage.
+        if docker run --rm --entrypoint /bin/sh solistromgateway:ci -c true 2>/dev/null; then
+          echo "a shell is present in the image, which it should not be"
+          exit 1
+        fi
+        echo "no shell present, as intended"
+
+    - name: The version command must work in the image
+      run: |
+        # Proves the scratch image can actually execute the static binary.
+        docker run --rm solistromgateway:ci version
+
+    - name: The program must run under the locked-down settings
+      run: |
+        # config.example.json is already checked by the Go tests and covers all
+        # three device types, so using it here avoids a second copy of the
+        # schema that could drift. None of the addresses in it resolve on a
+        # runner, which is exactly what this step wants: the program should
+        # start, fail to reach them, and carry on.
+        #
+        # It is committed world-readable, which the container needs since it
+        # runs as uid 65534.
+        docker run --detach --name sg-ci \
+          --read-only \
+          --cap-drop ALL \
+          --security-opt no-new-privileges:true \
+          --user 65534:65534 \
+          --volume "$PWD/config.example.json:/config/config.json:ro" \
+          solistromgateway:ci
+
+        # It runs until stopped. The example uses a five second timeout, so wait
+        # long enough for the first read to fail and be logged.
+        sleep 12
+        docker logs sg-ci > /tmp/ci.log 2>&1
+        docker stop sg-ci > /dev/null
+        docker rm sg-ci > /dev/null
+        echo "----- container log -----"
+        cat /tmp/ci.log
+        echo "-------------------------"
+
+        grep -q 'msg=starting' /tmp/ci.log \
+          || { echo "the program did not report starting"; exit 1; }
+        grep -q 'devices=3' /tmp/ci.log \
+          || { echo "the program did not load all three example devices"; exit 1; }
+        grep -q 'could not read device' /tmp/ci.log \
+          || { echo "the program did not try to read a device"; exit 1; }

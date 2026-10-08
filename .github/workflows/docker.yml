@@ -3,6 +3,7 @@ name: Docker
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -94,3 +95,74 @@ jobs:
         grep -q 'could not apply a memory protection' /tmp/ci.log \
           && { echo "a memory protection failed inside the container"; exit 1; }
         echo "both memory protections applied under cap_drop ALL"
+
+  publish:
+    # Only after the image has been built, run, and checked for a shell and for
+    # running as root. Never on a pull request: a fork cannot write packages, and
+    # an unreviewed branch should not be published.
+    needs: image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Work out the image name and tags
+      id: meta
+      run: |
+        # A container repository name has to be lowercase and this owner is not,
+        # so the registry would reject the name as written.
+        name="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+
+        short="${GITHUB_SHA::7}"
+        tags="--tag ${name}:sha-${short}"
+        version="${short}"
+
+        # A tagged release names itself; a build of main is identified by commit.
+        if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          tags="${tags} --tag ${name}:${GITHUB_REF_NAME}"
+          version="${GITHUB_REF_NAME}"
+        fi
+        if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+          tags="${tags} --tag ${name}:latest"
+        fi
+
+        echo "name=${name}" >> "$GITHUB_OUTPUT"
+        echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
+        echo "publishing ${name}, version ${version}, tags:${tags}"
+
+    - name: Sign in to the registry
+      run: |
+        echo '${{ secrets.GITHUB_TOKEN }}' \
+          | docker login ghcr.io --username '${{ github.actor }}' --password-stdin
+
+    - name: Set up a builder that can target other architectures
+      # The default driver cannot produce a multi-architecture manifest.
+      run: docker buildx create --use --driver docker-container
+
+    - name: Build and publish for all three architectures
+      # No emulation is involved. The program is pure Go with cgo disabled, so
+      # the build stage runs natively and cross-compiles to each target.
+      run: |
+        docker buildx build \
+          --platform linux/amd64,linux/arm64,linux/arm/v7 \
+          --build-arg VERSION="${{ steps.meta.outputs.version }}" \
+          ${{ steps.meta.outputs.tags }} \
+          --push \
+          .
+
+    - name: Confirm the manifest really lists all three architectures
+      run: |
+        docker buildx imagetools inspect \
+          "${{ steps.meta.outputs.name }}:sha-${GITHUB_SHA::7}" | tee /tmp/manifest.txt
+
+        for want in linux/amd64 linux/arm64 linux/arm/v7; do
+          grep -q "$want" /tmp/manifest.txt \
+            || { echo "the published manifest is missing ${want}"; exit 1; }
+        done
+        echo "all three architectures are in the published manifest"

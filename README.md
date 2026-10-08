@@ -112,6 +112,27 @@ a terminal open. The image contains the program and a bundle of certificates and
 nothing else at all: no shell, no package manager, no libc. It runs as `nobody`
 with no capabilities and a read-only filesystem.
 
+Images are published to the GitHub registry for 64-bit x86, 64-bit ARM and
+32-bit ARM, so the same name works on a desktop, on a Raspberry Pi running a
+64-bit system, and on an older Pi running a 32-bit one:
+
+    ghcr.io/knight1/solistromgateway:latest
+
+To run the published image:
+
+    docker compose up -d
+
+`latest` follows the newest build of the main branch. To pin a release instead,
+set `TAG`:
+
+    TAG=v1.0.0 docker compose up -d
+
+The package starts out private. Either make it public in the repository's package
+settings on GitHub, or sign in first with `docker login ghcr.io`.
+
+You can also build it yourself and skip the registry entirely, which is what you
+want when you have local changes:
+
     export VERSION="$(git describe --tags --always --dirty)"
     docker compose up -d --build
 

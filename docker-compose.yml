@@ -6,7 +6,14 @@ services:
         # export VERSION="$(git describe --tags --always --dirty)" before
         # building to stamp the version into the binary.
         VERSION: ${VERSION:-}
-    image: solistromgateway:latest
+    # Published by CI for amd64, arm64 and armv7. Set TAG to pin a release,
+    # for example TAG=v1.0.0, or leave it for the newest build of main.
+    #
+    # The package is private until you make it public in the repository's
+    # package settings on GitHub. Until then, run
+    #   docker login ghcr.io
+    # before pulling, or build locally with: docker compose up -d --build
+    image: ghcr.io/knight1/solistromgateway:${TAG:-latest}
     restart: unless-stopped
 
     # The program only ever reads its configuration and writes to stdout, so it

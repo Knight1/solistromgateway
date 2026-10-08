@@ -4,10 +4,11 @@
 # changed under us by a retagged image. Dependabot already watches the docker
 # ecosystem for this repository, so it will raise a pull request when the pin
 # falls behind.
-FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
 
 # The only thing needed from the build image is the CA bundle, which the final
-# stage copies out so HTTPS to the push API can be verified.
+# stage copies out so HTTPS to the push API can be verified. It is a text file,
+# so the copy is valid whatever architecture the final image targets.
 RUN apk add --no-cache ca-certificates
 
 WORKDIR /src
@@ -18,11 +19,28 @@ COPY . .
 #   docker build --build-arg VERSION="$(git describe --tags --always --dirty)" .
 ARG VERSION=""
 
+# Supplied by buildx. The build stage always runs on the native architecture and
+# cross-compiles to the target, which is why there is no emulation here: the
+# program is pure Go with cgo disabled, so the toolchain can do it directly.
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+
 # CGO off produces a static binary that needs no libc, which is what makes the
 # scratch stage below possible. -trimpath keeps build paths out of the binary,
 # -s -w drop the symbol and DWARF tables, and -buildvcs=false makes the build
 # the same whether or not a repository happens to be in the context.
-RUN CGO_ENABLED=0 go build \
+RUN set -eu; \
+    goarm=""; \
+    case "${TARGETVARIANT}" in \
+      v7) goarm=7 ;; \
+      v6) goarm=6 ;; \
+    esac; \
+    CGO_ENABLED=0 \
+    GOOS="${TARGETOS}" \
+    GOARCH="${TARGETARCH}" \
+    GOARM="${goarm}" \
+    go build \
       -trimpath \
       -buildvcs=false \
       -ldflags "-s -w -X main.version=${VERSION}" \

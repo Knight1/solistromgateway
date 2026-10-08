@@ -151,6 +151,8 @@ func wantsVersion(flagSet bool, args []string) bool {
 func main() {
 	configPath := flag.String("config", "config.json", "path to the configuration file")
 	showVersion := flag.Bool("version", false, "print version information and exit")
+	allowDebug := flag.Bool("allow-debug", false,
+		"permit another process to inspect this one's memory; weakens protection of the push URL")
 	flag.Parse()
 
 	// Answered before the configuration is read, so it still works when the
@@ -160,13 +162,20 @@ func main() {
 		return
 	}
 
-	if err := run(*configPath); err != nil {
+	if err := run(*configPath, *allowDebug); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath string) error {
+func run(configPath string, allowDebug bool) error {
+	// Done before the configuration is read, so the push URL never exists inside
+	// an unprotected process.
+	hardening := hardeningReport{Skipped: true}
+	if !allowDebug {
+		hardening = hardenProcess()
+	}
+
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -174,6 +183,8 @@ func run(configPath string) error {
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)}))
 	slog.SetDefault(log)
+
+	logHardening(log, hardening)
 
 	devices, err := buildDevices(cfg)
 	if err != nil {

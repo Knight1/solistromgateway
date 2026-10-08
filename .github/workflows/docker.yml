@@ -85,3 +85,12 @@ jobs:
           || { echo "the program did not load any devices"; exit 1; }
         grep -q 'could not read device' /tmp/ci.log \
           || { echo "the program did not try to read a device"; exit 1; }
+
+        # On Linux both memory protections apply, and this is the only place
+        # that path is exercised: the prctl call has no equivalent on macOS, so
+        # it cannot be verified during local development.
+        grep -q 'measures=2' /tmp/ci.log \
+          || { echo "expected both memory protections to apply on Linux"; exit 1; }
+        grep -q 'could not apply a memory protection' /tmp/ci.log \
+          && { echo "a memory protection failed inside the container"; exit 1; }
+        echo "both memory protections applied under cap_drop ALL"

@@ -106,8 +106,8 @@ func (d Device) Inverter() int {
 }
 
 // InapplicableSettings lists settings that are set on this device but do
-// nothing for its type. They are not errors — a no-op setting is not wrong
-// data — but somebody who set one is expecting an effect they will not get.
+// nothing for its type. They are not errors, since a no-op setting is not wrong
+// data, but somebody who set one is expecting an effect they will not get.
 func (d Device) InapplicableSettings() []string {
 	var out []string
 	switch d.Type {

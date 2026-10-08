@@ -20,11 +20,11 @@ inverters. This program speaks to AhoyDTU; OpenDTU is not supported yet.
 ## What you need
 
 - One of the supported setups, reachable on your network:
-  - a Growatt inverter with OpenInverterGateway — you should be able to open
+  - a Growatt inverter with OpenInverterGateway, where you should be able to open
     `http://<its address>/status` in a browser and see a page full of numbers;
-  - or a Hoymiles inverter with AhoyDTU — `http://<its address>/api/index`
+  - or a Hoymiles inverter with AhoyDTU, where `http://<its address>/api/index`
     should show you a short page listing your inverters;
-  - or an APsystems EZ1 with its local API switched on — open
+  - or an APsystems EZ1 with its local API switched on, where you open
     `http://<its address>:8050/getOutputData` and you should see a line of
     numbers.
 - A Solistrom account.
@@ -121,12 +121,12 @@ Because the container runs as uid 65534, that file has to be readable by others:
 
 Two things to know. The container has no clock setting of its own, so timestamps
 in the log are UTC rather than your local time. And there is no health check,
-because a container with no shell has nothing to run one with — use
+because a container with no shell has nothing to run one with. Use
 `docker compose logs` to see how it is getting on.
 
 ## The settings explained
 
-- `log_level` — how much the program writes to its log. This sits at the top
+- `log_level`: how much the program writes to its log. This sits at the top
   of the file, alongside `devices`, not inside one device. The default,
   `info`, only shows you the start-up line and anything that goes wrong, so
   after that you will see nothing at all for as long as things keep working.
@@ -135,31 +135,31 @@ because a container with no shell has nothing to run one with — use
   see pushes actually succeeding; switch it back to `"info"` once you are
   confident it is working, so the log does not fill up with a line every few
   seconds.
-- `name` — whatever you want to call the device. It appears in the log lines,
+- `name`: whatever you want to call the device. It appears in the log lines,
   so pick something you will recognise.
-- `type` — what kind of device this is: `growatt-openinvertergateway`,
-  `hoymiles-ahoydtu`, or `apsystems-local`. The older wording below
-  describes the Growatt one; `growatt-openinvertergateway` is the
-  only one implemented right now.
-- `connection` — how the program talks to the device. `http` is the only
+- `type`: which kind of device this is. One of
+  `growatt-openinvertergateway`, `hoymiles-ahoydtu` or `apsystems-local`.
+- `connection`: how the program talks to the device. `http` is the only
   value supported right now.
-- `inverter_id` — AhoyDTU only. Which inverter on the datalogger this entry
+- `inverter_id`: AhoyDTU only. Which inverter on the datalogger this entry
   reads, counting from 0. You can leave it out if you only have one. See the
   AhoyDTU section below.
-- `url` — your inverter's address. No trailing path; the program adds
-  `/status` itself.
-- `username` and `password` — only if your gateway asks for a login. Most do
-  not. Leave them empty otherwise.
-- `interval` — how often to send. Solistrom asks for every 5 to 10 seconds, and
+- `url`: the address of the device on your network, with no path on the end.
+  The program knows which path each kind of device uses and adds it itself.
+  For an APsystems EZ1 include the port, as in `http://10.0.0.207:8050`.
+- `username` and `password`: only for a Growatt gateway that asks for a login,
+  and most do not. AhoyDTU and APsystems do not use this kind of login, so
+  leave these empty for them.
+- `interval`: how often to send. Solistrom asks for every 5 to 10 seconds, and
   the program will not accept anything faster than 5 seconds.
-- `timeout` — how long to wait for a slow answer. Must be shorter than the
+- `timeout`: how long to wait for a slow answer. Must be shorter than the
   interval.
-- `battery` — `auto` works out whether you have a battery by looking at the
+- `battery`: `auto` works out whether you have a battery by looking at the
   reported voltage. Set it to `off` to never send battery values, or `on` if
   you have a battery that the automatic check misses.
-- `report_grid` — off by default, and you probably want to leave it that way.
+- `report_grid`: off by default, and you probably want to leave it that way.
   See the note below.
-- `retry` — how many times to try a send in total if it keeps failing (so
+- `retry`: how many times to try a send in total if it keeps failing (so
   `attempts: 3` means three tries altogether, not three retries after the
   first), and how long to wait before trying again. Each retry waits twice as
   long as the one before. Retries also stop early if there is no time left
@@ -216,7 +216,7 @@ way to tell those two apart.
 
 ## If you have an APsystems EZ1
 
-Switch on the local API in the APsystems app first — it is off by default. Once
+Switch on the local API in the APsystems app first, as it is off by default. Once
 it is on, the inverter answers on port 8050, and the port goes in the address:
 
     {
@@ -251,7 +251,7 @@ grid figure from the meter you set up in the app. That is almost always what
 you want, and it is why `report_grid` starts switched off.
 
 If your inverter does have a meter attached, set `report_grid` to `true` and it
-will send grid power as well. This applies to the Growatt setup only — the
+will send grid power as well. This applies to the Growatt setup only. The
 Hoymiles and APsystems microinverters have no meter and no battery, so
 `report_grid` and `battery` do nothing there, and the program says so at startup
 if you set them.
@@ -288,12 +288,39 @@ There is a third thing it may say, which is not a fault:
     level=INFO msg="devices answered but had nothing to report yet" devices=roof
 
 That means the device replied perfectly well but has no figure for you at the
-moment — an AhoyDTU that has lost contact with one of its inverters, for
-instance. It is reported separately from being unreachable because the two have
-different causes.
+moment, such as an AhoyDTU that has lost contact with one of its inverters. It
+is reported separately from being unreachable because the two have different
+causes.
 
 The check asks all the devices at once, so it takes about as long as your
 slowest `timeout` rather than the sum of them.
+
+## Keeping the push URL to yourself
+
+The push URL is the one secret here. Anyone who has it can write readings into
+your account, so the program tries not to let it escape.
+
+It is never written to a log: log lines show only the scheme and host, so
+pasting one into a bug report is safe. It is never accepted on the command line,
+where it would show up in a process list. And on startup the program asks the
+operating system to protect its own memory, which you will see as:
+
+    level=INFO msg="memory protection in place" measures=2
+
+On Linux that means two things: core dumps are switched off, so a crash cannot
+write your push URL into a file, and the process is marked as not dumpable, so
+another program running as the same user cannot read its memory or its
+environment. On macOS only the core dump part applies, and it reports one
+measure instead of two. Neither needs any special privileges, so both still work
+inside the locked-down container.
+
+If you ever need to attach a debugger, `-allow-debug` turns this off. It says so
+loudly in the log when you do.
+
+Two things left to you. Keep `config.json` at `chmod 600`; the program tells you
+if it is wider. And prefer the file over the `SOLISTROM_PUSH_URL_` environment
+variable: the environment of a running process is more exposed than a file with
+tight permissions, and nothing the program can do will scrub it.
 
 ## Overnight, and other quiet spells
 
@@ -319,16 +346,16 @@ out. Several devices run independently; one failing does not stop the others.
 
 Some lines you might see:
 
-- `could not read device, skipping this push` — the inverter did not answer, or
+- `could not read device, skipping this push`: the inverter did not answer, or
   answered with something unreadable. Check the address, and try opening
   `/status` in a browser. The program will not send a stale reading in place of
   a missing one.
-- `unrecognised /status response` — the program did not find a power reading it
+- `unrecognised /status response`: the program did not find a power reading it
   knows. The line lists the field names your device returned; open an issue
   with that list.
-- `returned 401 Unauthorized` — your gateway wants a login. Fill in `username`
+- `returned 401 Unauthorized`: your gateway wants a login. Fill in `username`
   and `password`.
-- `giving up on this push until the next interval` — Solistrom did not accept
+- `giving up on this push until the next interval`: Solistrom did not accept
   the reading, and the program has used up its attempts for this round. It will
   try again at the next interval. If it keeps happening, check that the push URL
   is still valid in the app. Each individual attempt is logged at `debug` as

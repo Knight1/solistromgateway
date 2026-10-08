@@ -180,6 +180,12 @@ func run(configPath string) error {
 		return err
 	}
 
+	// Who else can read the file that holds the push URL. Reported, never
+	// fatal: a container has to be able to read it as its own uid.
+	for _, concern := range config.PermissionConcerns(configPath) {
+		log.Warn("configuration file permissions are wider than they need to be", "detail", concern)
+	}
+
 	for _, d := range cfg.Devices {
 		for _, setting := range d.InapplicableSettings() {
 			log.Warn("setting has no effect for this device type and is being ignored",

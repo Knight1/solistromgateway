@@ -145,6 +145,39 @@ type Config struct {
 	Devices  []Device `json:"devices"`
 }
 
+// PermissionConcerns reports anything worrying about who can read or write the
+// config file.
+//
+// The file holds the push URL, and that URL is a credential: anyone with it can
+// write readings into the owner's energy account. These are concerns rather
+// than errors, and deliberately never stop the program. A container mounting
+// this file has to make it readable by the uid inside the container, so a wider
+// mode is sometimes the only workable choice.
+//
+// A file that cannot be inspected produces no concerns: Load already reports a
+// missing or unreadable file properly.
+func PermissionConcerns(path string) []string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+
+	mode := info.Mode().Perm()
+	var concerns []string
+
+	if mode&0o022 != 0 {
+		concerns = append(concerns, fmt.Sprintf(
+			"%s can be written by other users (mode %#o); somebody else could change where your readings are sent. Consider chmod 600.",
+			path, mode))
+	}
+	if mode&0o044 != 0 {
+		concerns = append(concerns, fmt.Sprintf(
+			"%s can be read by other users (mode %#o); it holds your push URL, which is a credential. Consider chmod 600.",
+			path, mode))
+	}
+	return concerns
+}
+
 // Load reads, defaults and validates the config file at path.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)

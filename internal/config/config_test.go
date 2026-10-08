@@ -405,3 +405,63 @@ func TestAPsystemsInapplicableSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionConcernsOnATightFile(t *testing.T) {
+	path := writeConfig(t, validConfig)
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	if got := PermissionConcerns(path); len(got) != 0 {
+		t.Errorf("PermissionConcerns() = %v, want none for mode 0600", got)
+	}
+}
+
+func TestPermissionConcernsWhenOthersCanRead(t *testing.T) {
+	// The file may hold the push URL, which is a credential.
+	path := writeConfig(t, validConfig)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	got := PermissionConcerns(path)
+	if len(got) == 0 {
+		t.Fatal("want a concern for a world-readable config")
+	}
+	joined := strings.Join(got, " ")
+	for _, want := range []string{"read", "0644", "chmod 600"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("concern should mention %q: %v", want, got)
+		}
+	}
+}
+
+func TestPermissionConcernsWhenOthersCanWrite(t *testing.T) {
+	// Worse than readable: another user could change where the data is sent.
+	path := writeConfig(t, validConfig)
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	joined := strings.Join(PermissionConcerns(path), " ")
+	if !strings.Contains(joined, "written") {
+		t.Errorf("want a concern about being writable: %s", joined)
+	}
+}
+
+func TestPermissionConcernsOnGroupOnlyAccess(t *testing.T) {
+	// Group access counts too, not just world access.
+	path := writeConfig(t, validConfig)
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	if got := PermissionConcerns(path); len(got) == 0 {
+		t.Error("want a concern for a group-readable config")
+	}
+}
+
+func TestPermissionConcernsOnAMissingFile(t *testing.T) {
+	// Load reports a missing file; this must not add noise or panic.
+	if got := PermissionConcerns(filepath.Join(t.TempDir(), "absent.json")); len(got) != 0 {
+		t.Errorf("PermissionConcerns() = %v, want none for a file that is not there", got)
+	}
+}

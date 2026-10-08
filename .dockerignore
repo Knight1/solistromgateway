@@ -1,0 +1,14 @@
+# Keep the build context small, and keep local secrets and history out of it.
+.git
+.github
+.dockerignore
+Dockerfile
+docker-compose.yml
+docs
+
+# config.json holds the push URL, which is a credential. It is mounted at
+# runtime, never built into the image.
+config.json
+*.local.json
+
+*.md

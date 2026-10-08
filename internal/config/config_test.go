@@ -370,3 +370,38 @@ func TestNoInapplicableSettingsOnACleanDevice(t *testing.T) {
 		t.Errorf("InapplicableSettings() = %v, want none", got)
 	}
 }
+
+func TestAPsystemsTypeIsAccepted(t *testing.T) {
+	body := strings.Replace(validAhoy, `"type": "hoymiles-ahoydtu"`, `"type": "apsystems-local"`, 1)
+	body = strings.Replace(body, "http://10.0.0.197", "http://10.0.0.207:8050", 1)
+	cfg, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Devices[0].Type != TypeAPsystems {
+		t.Errorf("type = %q, want %q", cfg.Devices[0].Type, TypeAPsystems)
+	}
+}
+
+func TestAPsystemsPortInTheURLIsAccepted(t *testing.T) {
+	// The EZ1 serves its local API on port 8050, so the port belongs in the URL
+	// rather than in a setting of its own.
+	body := `{"devices":[{"name":"balcony","type":"apsystems-local",
+	  "url":"http://10.0.0.207:8050","push_url":"https://push.example.com/p?code=K"}]}`
+	if _, err := Load(writeConfig(t, body)); err != nil {
+		t.Fatalf("a URL with a port should be valid: %v", err)
+	}
+}
+
+func TestAPsystemsInapplicableSettings(t *testing.T) {
+	// One EZ1 is one device with two panel inputs, so there is no inverter to
+	// select, and it has neither a battery nor a grid meter.
+	id := 1
+	d := Device{Type: TypeAPsystems, InverterID: &id, ReportGrid: true, Battery: "on"}
+	got := d.InapplicableSettings()
+	for _, want := range []string{"inverter_id", "report_grid", "battery"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("InapplicableSettings() = %v, want it to include %q", got, want)
+		}
+	}
+}

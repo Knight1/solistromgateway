@@ -17,6 +17,7 @@ import (
 	"github.com/Knight1/solistromgateway/internal/runner"
 	"github.com/Knight1/solistromgateway/internal/source"
 	"github.com/Knight1/solistromgateway/internal/source/ahoydtu"
+	"github.com/Knight1/solistromgateway/internal/source/apsystems"
 	"github.com/Knight1/solistromgateway/internal/source/growatt"
 )
 
@@ -75,6 +76,8 @@ func buildDevices(cfg *config.Config) ([]runner.Device, error) {
 			src = growatt.New(d)
 		case config.TypeAhoyDTU:
 			src = ahoydtu.New(d)
+		case config.TypeAPsystems:
+			src = apsystems.New(d)
 		default:
 			return nil, fmt.Errorf("device %q: type %q cannot be built", d.Name, d.Type)
 		}

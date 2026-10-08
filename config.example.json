@@ -30,6 +30,18 @@
         "attempts": 3,
         "backoff": "2s"
       }
+    },
+    {
+      "name": "balcony",
+      "type": "apsystems-local",
+      "url": "http://10.0.0.207:8050",
+      "push_url": "https://push.example.com/api/v2/ACCOUNT-ID/generic-push/A-THIRD-DEVICE-ID?code=YOUR-KEY",
+      "interval": "10s",
+      "timeout": "5s",
+      "retry": {
+        "attempts": 3,
+        "backoff": "2s"
+      }
     }
   ]
 }

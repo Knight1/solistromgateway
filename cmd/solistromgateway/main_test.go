@@ -14,6 +14,7 @@ import (
 	"github.com/Knight1/solistromgateway/internal/config"
 	"github.com/Knight1/solistromgateway/internal/push"
 	"github.com/Knight1/solistromgateway/internal/source/ahoydtu"
+	"github.com/Knight1/solistromgateway/internal/source/apsystems"
 	"github.com/Knight1/solistromgateway/internal/source/growatt"
 )
 
@@ -188,5 +189,58 @@ func TestEndToEndAhoyDTUPayloadFromRealCapture(t *testing.T) {
 
 	if gotBody != `{"producingWatt":5}` {
 		t.Errorf("payload = %s, want {\"producingWatt\":5}", gotBody)
+	}
+}
+
+func TestBuildDevicesBuildsAnAPsystemsSource(t *testing.T) {
+	cfg := &config.Config{Devices: []config.Device{{
+		Name: "balcony", Type: config.TypeAPsystems, Connection: "http",
+		URL: "http://10.0.0.207:8050", PushURL: "https://push.example.com/p?code=K",
+	}}}
+	devices, err := buildDevices(cfg)
+	if err != nil {
+		t.Fatalf("buildDevices: %v", err)
+	}
+	if len(devices) != 1 || devices[0].Source == nil {
+		t.Fatalf("source was not built: %+v", devices)
+	}
+	if devices[0].Source.Name() != "balcony" {
+		t.Errorf("source name = %q, want balcony", devices[0].Source.Name())
+	}
+}
+
+func TestEndToEndAPsystemsPayloadFromRealCapture(t *testing.T) {
+	// The captured EZ1 response must reach the API as production only, with the
+	// two panel inputs summed.
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "testdata", "apsystems-outputdata.json"))
+	if err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+
+	ez1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(fixture)
+	}))
+	defer ez1.Close()
+
+	var gotBody string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer api.Close()
+
+	src := apsystems.New(config.Device{Name: "e2e", URL: ez1.URL})
+	reading, err := src.Read(context.Background())
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if err := push.New().Push(context.Background(), api.URL, reading); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	if gotBody != `{"producingWatt":10}` {
+		t.Errorf("payload = %s, want {\"producingWatt\":10}", gotBody)
 	}
 }

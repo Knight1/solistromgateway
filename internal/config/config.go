@@ -20,9 +20,9 @@ const (
 )
 
 // supportedTypes are the device types that are actually implemented.
-var supportedTypes = []string{TypeGrowatt, TypeAhoyDTU}
+var supportedTypes = []string{TypeGrowatt, TypeAhoyDTU, TypeAPsystems}
 
-var plannedTypes = []string{TypeOpenDTU, TypeAPsystems}
+var plannedTypes = []string{TypeOpenDTU}
 
 // Duration is a time.Duration that reads from JSON as a string such as "10s".
 //
@@ -117,6 +117,18 @@ func (d Device) InapplicableSettings() []string {
 		}
 	case TypeAhoyDTU:
 		// A microinverter datalogger has no battery and no grid meter.
+		if d.ReportGrid {
+			out = append(out, "report_grid")
+		}
+		if d.Battery != "" && d.Battery != "auto" {
+			out = append(out, "battery")
+		}
+	case TypeAPsystems:
+		// One EZ1 is a single inverter with two panel inputs, which are summed,
+		// so there is nothing to select. It has no battery and no grid meter.
+		if d.InverterID != nil {
+			out = append(out, "inverter_id")
+		}
 		if d.ReportGrid {
 			out = append(out, "report_grid")
 		}

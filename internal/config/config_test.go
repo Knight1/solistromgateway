@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -243,5 +244,129 @@ func TestEnvVarName(t *testing.T) {
 	}
 	if got := envVarName("roof.east 2"); got != "SOLISTROM_PUSH_URL_ROOF_EAST_2" {
 		t.Errorf("got %q", got)
+	}
+}
+
+const validAhoy = `{
+  "devices": [
+    {
+      "name": "roof",
+      "type": "hoymiles-ahoydtu",
+      "url": "http://10.0.0.197",
+      "push_url": "https://push.example.com/api/v2/ACCOUNT/generic-push/DEVICE?code=KEY",
+      "interval": "15s",
+      "timeout": "5s"
+    }
+  ]
+}`
+
+func TestAhoyDTUTypeIsAccepted(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validAhoy))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Devices[0].Type != TypeAhoyDTU {
+		t.Errorf("type = %q, want %q", cfg.Devices[0].Type, TypeAhoyDTU)
+	}
+}
+
+func TestInverterDefaultsToZero(t *testing.T) {
+	// A single-inverter setup should not have to say which inverter it means.
+	cfg, err := Load(writeConfig(t, validAhoy))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.Devices[0].Inverter(); got != 0 {
+		t.Errorf("Inverter() = %d, want 0 when the field is absent", got)
+	}
+}
+
+func TestInverterIsReadWhenGiven(t *testing.T) {
+	body := strings.Replace(validAhoy, `"interval": "15s"`, `"inverter_id": 2, "interval": "15s"`, 1)
+	cfg, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.Devices[0].Inverter(); got != 2 {
+		t.Errorf("Inverter() = %d, want 2", got)
+	}
+}
+
+func TestNegativeInverterIsRejected(t *testing.T) {
+	body := strings.Replace(validAhoy, `"interval": "15s"`, `"inverter_id": -1, "interval": "15s"`, 1)
+	if _, err := Load(writeConfig(t, body)); err == nil ||
+		!strings.Contains(err.Error(), "inverter_id must be zero or greater") {
+		t.Fatalf("want a negative-inverter error, got %v", err)
+	}
+}
+
+func TestSameInverterTwiceIsRejected(t *testing.T) {
+	// Two entries reading the same inverter would report one inverter's
+	// production as two devices, so the app would count it twice.
+	body := `{"devices":[
+	  {"name":"a","type":"hoymiles-ahoydtu","url":"http://10.0.0.197","push_url":"https://push.example.com/a?code=K"},
+	  {"name":"b","type":"hoymiles-ahoydtu","url":"http://10.0.0.197","push_url":"https://push.example.com/b?code=K"}]}`
+	_, err := Load(writeConfig(t, body))
+	if err == nil {
+		t.Fatal("want an error for two devices reading the same inverter")
+	}
+	for _, want := range []string{"\"a\"", "\"b\"", "inverter 0"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should name %s:\n%v", want, err)
+		}
+	}
+}
+
+func TestSameInverterTwiceIsRejectedDespiteATrailingSlash(t *testing.T) {
+	// The same device addressed two ways is still the same device.
+	body := `{"devices":[
+	  {"name":"a","type":"hoymiles-ahoydtu","url":"http://10.0.0.197","push_url":"https://push.example.com/a?code=K"},
+	  {"name":"b","type":"hoymiles-ahoydtu","url":"http://10.0.0.197/","push_url":"https://push.example.com/b?code=K"}]}`
+	if _, err := Load(writeConfig(t, body)); err == nil {
+		t.Fatal("a trailing slash should not get past the duplicate check")
+	}
+}
+
+func TestSameDTUDifferentInvertersIsAllowed(t *testing.T) {
+	// The normal multi-inverter setup: one DTU, one entry per inverter.
+	body := `{"devices":[
+	  {"name":"a","type":"hoymiles-ahoydtu","url":"http://10.0.0.197","inverter_id":0,"push_url":"https://push.example.com/a?code=K"},
+	  {"name":"b","type":"hoymiles-ahoydtu","url":"http://10.0.0.197","inverter_id":1,"push_url":"https://push.example.com/b?code=K"}]}`
+	if _, err := Load(writeConfig(t, body)); err != nil {
+		t.Fatalf("one entry per inverter should be valid: %v", err)
+	}
+}
+
+func TestDifferentDevicesSameInverterIsAllowed(t *testing.T) {
+	// Two separate DTUs each have an inverter 0.
+	body := `{"devices":[
+	  {"name":"a","type":"hoymiles-ahoydtu","url":"http://10.0.0.197","push_url":"https://push.example.com/a?code=K"},
+	  {"name":"b","type":"hoymiles-ahoydtu","url":"http://10.0.0.198","push_url":"https://push.example.com/b?code=K"}]}`
+	if _, err := Load(writeConfig(t, body)); err != nil {
+		t.Fatalf("two different DTUs should be valid: %v", err)
+	}
+}
+
+func TestInapplicableSettingsAreReported(t *testing.T) {
+	// Settings that quietly do nothing are worth telling somebody about.
+	ahoy := Device{Type: TypeAhoyDTU, ReportGrid: true, Battery: "on"}
+	got := ahoy.InapplicableSettings()
+	for _, want := range []string{"report_grid", "battery"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("InapplicableSettings() = %v, want it to include %q", got, want)
+		}
+	}
+
+	id := 1
+	growatt := Device{Type: TypeGrowatt, Battery: "auto", InverterID: &id}
+	if got := growatt.InapplicableSettings(); !slices.Contains(got, "inverter_id") {
+		t.Errorf("InapplicableSettings() = %v, want it to include \"inverter_id\"", got)
+	}
+}
+
+func TestNoInapplicableSettingsOnACleanDevice(t *testing.T) {
+	d := Device{Type: TypeAhoyDTU, Battery: "auto"}
+	if got := d.InapplicableSettings(); len(got) != 0 {
+		t.Errorf("InapplicableSettings() = %v, want none", got)
 	}
 }

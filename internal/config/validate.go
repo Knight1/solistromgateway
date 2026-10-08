@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -24,6 +25,7 @@ func (c *Config) validate() error {
 	}
 
 	seen := make(map[string]bool, len(c.Devices))
+	readers := make(map[string]string, len(c.Devices))
 	for i, d := range c.Devices {
 		// Identify the device by name if it has one, by position if not.
 		label := fmt.Sprintf("devices[%d]", i)
@@ -38,6 +40,18 @@ func (c *Config) validate() error {
 		}
 		seen[d.Name] = true
 
+		// Two entries reading the same inverter would report one inverter's
+		// production as two separate devices, so the app would count it twice.
+		if d.URL != "" {
+			key := fmt.Sprintf("%s#%d", strings.TrimRight(d.URL, "/"), d.Inverter())
+			if first, clash := readers[key]; clash {
+				errs = append(errs, fmt.Errorf("%s: devices %s and %s both read inverter %d at %s; give them different inverter_id values",
+					label, first, label, d.Inverter(), strings.TrimRight(d.URL, "/")))
+			} else {
+				readers[key] = label
+			}
+		}
+
 		errs = append(errs, validateType(label, d.Type)...)
 		errs = append(errs, validateConnection(label, d.Connection)...)
 		errs = append(errs, validateURLs(label, d)...)
@@ -45,6 +59,9 @@ func (c *Config) validate() error {
 
 		if d.Battery != "auto" && d.Battery != "on" && d.Battery != "off" {
 			errs = append(errs, fmt.Errorf("%s: battery must be \"auto\", \"on\" or \"off\", got %q", label, d.Battery))
+		}
+		if d.Inverter() < 0 {
+			errs = append(errs, fmt.Errorf("%s: inverter_id must be zero or greater, got %d", label, d.Inverter()))
 		}
 		if d.Retry.AttemptCount() < 1 {
 			errs = append(errs, fmt.Errorf("%s: retry.attempts must be at least 1", label))
@@ -60,12 +77,12 @@ func validateType(label, typ string) []error {
 	switch {
 	case typ == "":
 		return []error{fmt.Errorf("%s: type is required", label)}
-	case typ == TypeGrowatt:
+	case slices.Contains(supportedTypes, typ):
 		return nil
 	case slices.Contains(plannedTypes, typ):
-		return []error{fmt.Errorf("%s: device type %q is not implemented yet; only %q is supported", label, typ, TypeGrowatt)}
+		return []error{fmt.Errorf("%s: device type %q is not implemented yet; supported: %s", label, typ, strings.Join(supportedTypes, ", "))}
 	default:
-		return []error{fmt.Errorf("%s: unknown device type %q; supported: %s", label, typ, TypeGrowatt)}
+		return []error{fmt.Errorf("%s: unknown device type %q; supported: %s", label, typ, strings.Join(supportedTypes, ", "))}
 	}
 }
 

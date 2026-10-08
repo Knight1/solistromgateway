@@ -13,6 +13,7 @@ import (
 
 	"github.com/Knight1/solistromgateway/internal/config"
 	"github.com/Knight1/solistromgateway/internal/push"
+	"github.com/Knight1/solistromgateway/internal/source/ahoydtu"
 	"github.com/Knight1/solistromgateway/internal/source/growatt"
 )
 
@@ -130,5 +131,62 @@ func TestEndToEndPayloadFromRealCapture(t *testing.T) {
 
 	if gotBody != `{"producingWatt":782}` {
 		t.Errorf("payload = %s, want {\"producingWatt\":782}", gotBody)
+	}
+}
+
+func TestBuildDevicesBuildsAnAhoyDTUSource(t *testing.T) {
+	cfg := &config.Config{Devices: []config.Device{{
+		Name: "roof", Type: config.TypeAhoyDTU, Connection: "http",
+		URL: "http://10.0.0.197", PushURL: "https://push.example.com/p?code=K",
+	}}}
+	devices, err := buildDevices(cfg)
+	if err != nil {
+		t.Fatalf("buildDevices: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(devices))
+	}
+	if devices[0].Source == nil {
+		t.Fatal("source was not built")
+	}
+	if devices[0].Source.Name() != "roof" {
+		t.Errorf("source name = %q, want roof", devices[0].Source.Name())
+	}
+}
+
+func TestEndToEndAhoyDTUPayloadFromRealCapture(t *testing.T) {
+	// The captured datalogger response must reach the API as production only.
+	// A microinverter has no battery and no grid meter, so a "soc" or a "watt"
+	// here would be a claim about hardware that does not exist.
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "testdata", "ahoydtu-index.json"))
+	if err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+
+	dtu := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(fixture)
+	}))
+	defer dtu.Close()
+
+	var gotBody string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer api.Close()
+
+	src := ahoydtu.New(config.Device{Name: "e2e", URL: dtu.URL})
+	reading, err := src.Read(context.Background())
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if err := push.New().Push(context.Background(), api.URL, reading); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	if gotBody != `{"producingWatt":5}` {
+		t.Errorf("payload = %s, want {\"producingWatt\":5}", gotBody)
 	}
 }

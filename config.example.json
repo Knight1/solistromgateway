@@ -17,6 +17,19 @@
         "attempts": 3,
         "backoff": "2s"
       }
+    },
+    {
+      "name": "roof",
+      "type": "hoymiles-ahoydtu",
+      "url": "http://10.0.0.197",
+      "inverter_id": 0,
+      "push_url": "https://push.example.com/api/v2/ACCOUNT-ID/generic-push/ANOTHER-DEVICE-ID?code=YOUR-KEY",
+      "interval": "15s",
+      "timeout": "5s",
+      "retry": {
+        "attempts": 3,
+        "backoff": "2s"
+      }
     }
   ]
 }

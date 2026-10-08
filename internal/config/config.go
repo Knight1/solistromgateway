@@ -14,9 +14,13 @@ import (
 // than "unknown type".
 const (
 	TypeGrowatt   = "growatt-openinvertergateway"
+	TypeAhoyDTU   = "hoymiles-ahoydtu"
 	TypeOpenDTU   = "hoymiles-opendtu"
 	TypeAPsystems = "apsystems-local"
 )
+
+// supportedTypes are the device types that are actually implemented.
+var supportedTypes = []string{TypeGrowatt, TypeAhoyDTU}
 
 var plannedTypes = []string{TypeOpenDTU, TypeAPsystems}
 
@@ -84,8 +88,43 @@ type Device struct {
 	Interval   Duration `json:"interval"`
 	Timeout    Duration `json:"timeout"`
 	Battery    string   `json:"battery"`
-	ReportGrid bool     `json:"report_grid"`
-	Retry      Retry    `json:"retry"`
+	// InverterID picks one inverter from a datalogger that serves several.
+	// A pointer so an absent field is distinguishable from an explicit 0,
+	// which matters for telling apart "did not say" from "said inverter 0".
+	InverterID *int  `json:"inverter_id"`
+	ReportGrid bool  `json:"report_grid"`
+	Retry      Retry `json:"retry"`
+}
+
+// Inverter returns which inverter on the device to read, defaulting to the
+// first. Safe on a Device built in code rather than parsed from JSON.
+func (d Device) Inverter() int {
+	if d.InverterID == nil {
+		return 0
+	}
+	return *d.InverterID
+}
+
+// InapplicableSettings lists settings that are set on this device but do
+// nothing for its type. They are not errors — a no-op setting is not wrong
+// data — but somebody who set one is expecting an effect they will not get.
+func (d Device) InapplicableSettings() []string {
+	var out []string
+	switch d.Type {
+	case TypeGrowatt:
+		if d.InverterID != nil {
+			out = append(out, "inverter_id")
+		}
+	case TypeAhoyDTU:
+		// A microinverter datalogger has no battery and no grid meter.
+		if d.ReportGrid {
+			out = append(out, "report_grid")
+		}
+		if d.Battery != "" && d.Battery != "auto" {
+			out = append(out, "battery")
+		}
+	}
+	return out
 }
 
 // Config is the whole file.

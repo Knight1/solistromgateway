@@ -1,0 +1,15 @@
+# Local configuration holds the push URL, which is a credential.
+config.json
+*.local.json
+
+# Build output
+/cmd/solistromgateway/solistromgateway
+/dist/
+
+# Editor and tooling
+.DS_Store
+.idea/
+.vscode/
+
+# Planning documents, not part of the shipped program
+docs/superpowers/

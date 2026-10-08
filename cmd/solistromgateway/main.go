@@ -12,7 +12,9 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Knight1/solistromgateway/internal/config"
 	"github.com/Knight1/solistromgateway/internal/push"
@@ -194,6 +196,13 @@ func run(configPath string) error {
 
 	startup := append(currentBuild().startupFields(), "devices", len(devices))
 	log.Info("starting", startup...)
+
+	// Say up front which devices are actually there. Unreachable ones are
+	// reported, never fatal: after dark none of them answer.
+	probeCtx, cancelProbe := context.WithTimeout(ctx, startupProbeBudget)
+	logReachability(log, probeDevices(probeCtx, devices))
+	cancelProbe()
+
 	runner.Run(ctx, devices, push.New(), log)
 	log.Info("stopped")
 	return nil
@@ -201,6 +210,88 @@ func run(configPath string) error {
 
 // buildDevices turns validated config into runnable devices.
 // buildDevices turns validated config into runnable devices.
+// startupProbeBudget caps how long the reachability check may take, so a device
+// configured with a long timeout cannot hold up the whole program.
+const startupProbeBudget = 15 * time.Second
+
+// probeResult is what the startup reachability check found for one device.
+//
+// Err and Empty are different things. Err means the device could not be read at
+// all. Empty means it answered perfectly well but had nothing to report, which
+// is what an inverter marked unavailable looks like, and is not a fault.
+type probeResult struct {
+	Name  string
+	Err   error
+	Empty bool
+}
+
+// probeDevices reads every device once so startup can say which ones answered.
+//
+// It reads them at the same time rather than one after another, so a few
+// unreachable devices cost one timeout between them instead of one each. It
+// never reports failure upward: every device is unreachable after dark, and
+// that must not stop the program from running.
+func probeDevices(ctx context.Context, devices []runner.Device) []probeResult {
+	results := make([]probeResult, len(devices))
+
+	var wg sync.WaitGroup
+	for i, d := range devices {
+		wg.Add(1)
+		go func(i int, d runner.Device) {
+			defer wg.Done()
+
+			readCtx, cancel := context.WithTimeout(ctx, d.Timeout)
+			defer cancel()
+
+			reading, err := d.Source.Read(readCtx)
+			results[i] = probeResult{Name: d.Name, Err: err, Empty: err == nil && reading.IsEmpty()}
+		}(i, d)
+	}
+	wg.Wait()
+
+	return results
+}
+
+// logReachability reports what the startup check found: a single line when
+// everything answered, and the name and reason for anything that did not.
+func logReachability(log *slog.Logger, results []probeResult) {
+	var unreachable, quiet []string
+	for _, r := range results {
+		switch {
+		case r.Err != nil:
+			unreachable = append(unreachable, r.Name)
+		case r.Empty:
+			quiet = append(quiet, r.Name)
+		}
+	}
+
+	reachable := len(results) - len(unreachable)
+
+	if len(unreachable) == 0 {
+		log.Info("all devices answered", "reachable", reachable)
+	} else {
+		log.Warn("some devices could not be reached",
+			"reachable", reachable,
+			"unreachable", len(unreachable),
+			"not_answering", strings.Join(unreachable, ", "))
+	}
+
+	// The reason belongs with the device it applies to, since a wrong address
+	// and a wrong inverter number look identical in a summary.
+	for _, r := range results {
+		if r.Err != nil {
+			log.Warn("device did not answer the startup check", "device", r.Name, "error", r.Err)
+		}
+	}
+
+	if len(quiet) > 0 {
+		// Normal after dark, and normal for an inverter the datalogger has lost
+		// contact with, so this is not raised as a problem.
+		log.Info("devices answered but had nothing to report yet",
+			"devices", strings.Join(quiet, ", "))
+	}
+}
+
 func buildDevices(cfg *config.Config) ([]runner.Device, error) {
 	devices := make([]runner.Device, 0, len(cfg.Devices))
 	for _, d := range cfg.Devices {

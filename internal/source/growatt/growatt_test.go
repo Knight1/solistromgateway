@@ -400,3 +400,31 @@ func deref(p *int) any {
 	}
 	return *p
 }
+
+func TestSOCIsClampedBeforeConversion(t *testing.T) {
+	// Converting an out-of-range float to an int is implementation-defined in
+	// Go. It happens to saturate on the platforms this runs on, which lands
+	// inside the clamp by luck rather than by rule, so the float is bounded
+	// first. These values are nonsense from a register, not real readings.
+	for _, tc := range []struct {
+		raw  string
+		want int
+	}{
+		{`1e300`, 100},
+		{`-1e300`, 0},
+		{`1e30`, 100},
+		{`120`, 100},
+		{`-5`, 0},
+		{`64`, 64},
+	} {
+		body := []byte(`{"OutputPower":500,"BatteryVoltage":51.2,"ChargePower":0,"DischargePower":0,"SOC":` + tc.raw + `}`)
+		got := read(t, newSource(t, body, nil))
+		if got.SOC == nil {
+			t.Errorf("SOC(%s) = nil, want %d", tc.raw, tc.want)
+			continue
+		}
+		if *got.SOC != tc.want {
+			t.Errorf("SOC(%s) = %d, want %d", tc.raw, *got.SOC, tc.want)
+		}
+	}
+}

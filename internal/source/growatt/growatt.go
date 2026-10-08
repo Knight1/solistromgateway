@@ -159,8 +159,11 @@ func (s *Source) batteryWanted(doc statusDoc, p protocol) bool {
 
 func (s *Source) mapBattery(doc statusDoc, p protocol, r *source.Reading) {
 	if v, ok := doc.number(p.soc); ok {
-		soc := int(math.Round(v))
-		r.SOC = source.Int(min(max(soc, 0), 100))
+		// Bound the float before converting. An out-of-range float-to-int
+		// conversion is implementation-defined in Go, and while it happens to
+		// saturate into range on the platforms this runs on, that is luck
+		// rather than a rule worth depending on.
+		r.SOC = source.Int(int(math.Round(min(max(v, 0), 100))))
 	}
 
 	charge, okCharge := doc.number(p.chargePower)

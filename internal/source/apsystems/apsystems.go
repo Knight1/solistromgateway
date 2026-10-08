@@ -32,11 +32,6 @@ const maxBodyBytes = 1 << 20
 // with more inputs cannot be silently understated.
 var powerPort = regexp.MustCompile(`^p[0-9]+$`)
 
-// serialField matches the device serial wherever it appears in a response body.
-// The EZ1 returns it from every endpoint, so it cannot be avoided by reading a
-// different one and has to be kept out of anything we might log.
-var serialField = regexp.MustCompile(`"deviceId"\s*:\s*"[^"]*"`)
-
 // Source reads one EZ1 inverter.
 type Source struct {
 	name    string
@@ -151,13 +146,30 @@ func (s *Source) fetch(ctx context.Context) (outputData, error) {
 	return doc, nil
 }
 
-// snippet gives a short single-line excerpt of a body for error messages, with
-// the device serial removed. Error messages end up in logs, and the project's
-// own troubleshooting notes invite people to paste those into bug reports.
+// snippet gives a short single-line excerpt of a body for error messages,
+// withholding anything that could carry the device serial.
+//
+// This inverter returns its serial from every endpoint, and error messages end
+// up in logs that the project's own troubleshooting notes invite people to paste
+// into bug reports. Trying to find and replace the serial does not work: a
+// truncated response carries it with no closing quote, and fuzzing found shapes
+// where no pattern matches it at all. So rather than guess at removing it, any
+// body mentioning the field is withheld outright.
+//
+// Nothing useful is lost. The bodies worth seeing do not mention it: a reboot
+// page, a captive portal, or the plain-text "Nothing matches the given URI" this
+// device returns for an unknown path.
+//
+// One residual case: a body carrying a bare serial with no field name around it
+// would not be caught. This device does not produce that shape, since the serial
+// only ever appears as the value of deviceId.
 func snippet(b []byte) string {
 	const limit = 60
-	s := serialField.ReplaceAllString(string(b), `"deviceId":"<redacted>"`)
-	s = strings.Join(strings.Fields(s), " ")
+	s := strings.Join(strings.Fields(string(b)), " ")
+
+	if strings.Contains(strings.ToLower(s), "deviceid") {
+		return fmt.Sprintf("body of %d bytes withheld because it mentions deviceId", len(b))
+	}
 	if len(s) > limit {
 		s = s[:limit] + "..."
 	}

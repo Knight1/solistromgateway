@@ -1,0 +1,22 @@
+{
+  "log_level": "info",
+  "devices": [
+    {
+      "name": "growatt-pv",
+      "type": "growatt-openinvertergateway",
+      "connection": "http",
+      "url": "http://10.0.0.240",
+      "username": "",
+      "password": "",
+      "push_url": "https://push.example.com/api/v2/ACCOUNT-ID/generic-push/DEVICE-ID?code=YOUR-KEY",
+      "interval": "10s",
+      "timeout": "5s",
+      "battery": "auto",
+      "report_grid": false,
+      "retry": {
+        "attempts": 3,
+        "backoff": "2s"
+      }
+    }
+  ]
+}

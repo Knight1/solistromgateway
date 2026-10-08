@@ -1,0 +1,46 @@
+services:
+  solistromgateway:
+    build:
+      context: .
+      args:
+        # export VERSION="$(git describe --tags --always --dirty)" before
+        # building to stamp the version into the binary.
+        VERSION: ${VERSION:-}
+    image: solistromgateway:latest
+    restart: unless-stopped
+
+    # The program only ever reads its configuration and writes to stdout, so it
+    # needs no writable filesystem of its own.
+    read_only: true
+
+    # It opens no ports, touches no devices and changes no ownership, so it
+    # needs no capabilities whatsoever.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+    # nobody, matching the image.
+    user: "65534:65534"
+
+    # Read-only, because the push URL in here is a credential.
+    #
+    # The container runs as uid 65534, so this file has to be readable by
+    # others. If you tighten it to 0600 the program will not be able to open
+    # it; use 0644, or chown it to 65534 and keep it at 0600.
+    volumes:
+      - ./config.json:/config/config.json:ro
+    command: ["-config", "/config/config.json"]
+
+    # Polling a handful of devices every ten seconds is close to free. These are
+    # a ceiling against something going wrong, not a measured requirement.
+    mem_limit: 64m
+    pids_limit: 32
+    cpus: 0.5
+
+    # A dark inverter is unreachable all night, so cap the log on disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

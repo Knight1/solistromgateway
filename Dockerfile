@@ -4,7 +4,7 @@
 # changed under us by a retagged image. Dependabot already watches the docker
 # ecosystem for this repository, so it will raise a pull request when the pin
 # falls behind.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
 
 # The only thing needed from the build image is the CA bundle, which the final
 # stage copies out so HTTPS to the push API can be verified. It is a text file,
